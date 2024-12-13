@@ -26,7 +26,9 @@ curl -X POST "$(terraform output -raw gateway_url)/orders/create" --header 'Cont
 curl -X POST "$(terraform output -raw gateway_url)/orders/create" --header 'Content-Type: application/json' -d '{"data":{"destination":{"name":"accountName"}}}'
 
 
-curl -X GET "$(terraform output -raw gateway_url)/orders/create" --header 'Content-Type: application/json' 
+curl -X GET "$(terraform output -raw gateway_url)/orders" --header 'Content-Type: application/json' 
+
+curl -X GET "$(terraform output -raw gateway_url)/orders3" --header 'Content-Type: application/json' 
 
 ```
 
@@ -52,3 +54,4 @@ https://github.com/terraform-aws-modules/terraform-aws-eventbridge/blob/master/e
 
 https://github.com/aws-samples/aws-lambda-redshift-event-driven-app/tree/main
 
+https://boto3.amazonaws.com/v1/documentation/api/1.35.6/reference/services/redshift-data/client/execute_statement.html

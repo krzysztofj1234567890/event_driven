@@ -85,14 +85,13 @@ module "api_gateway" {
       payload_format_version = "1.0"
     }
 
-    "GET /orders/create" = {
+    "GET /orders" = {
       integration_type    = "AWS_PROXY"
       lambda_arn             = module.lambda_read_redshift_order.lambda_function_arn
       payload_format_version = "1.0"
     }
   }
 }
-
 
 module "apigateway_put_events_to_eventbridge_role" {
   source  = "terraform-aws-modules/iam/aws//modules/iam-assumable-role"
@@ -177,6 +176,38 @@ resource "aws_iam_role" "redshift-serverless-role" {
   ]
 }
 EOF
+}
+
+resource "aws_iam_role_policy" "redshift-lambda-full-access-policy" {
+  name = "${var.app_name}-${var.app_environment}-redshift-serverless-role-lambda-policy"
+  role = aws_iam_role.redshift-serverless-role.id
+  policy = <<EOF
+{
+   "Version": "2012-10-17",
+   "Statement": [
+     {
+       "Effect": "Allow",
+       "Action": "lambda:*",
+       "Resource": "*"
+      }
+   ]
+}
+EOF
+}
+
+# Get the AmazonRedshiftAllCommandsFullAccess policy
+data "aws_iam_policy" "redshift-full-access-policy" {
+  name = "AmazonRedshiftAllCommandsFullAccess"
+}
+
+# Attach the policy to the Redshift role
+resource "aws_iam_role_policy_attachment" "attach-lambda" {
+  role       = aws_iam_role.redshift-serverless-role.name
+  policy_arn = data.aws_iam_policy.redshift-full-access-policy.arn
+}
+
+resource "aws_secretsmanager_secret" "redshift" {
+  name = "example"
 }
 
 module "vpc" {
@@ -297,6 +328,10 @@ module "lambda_read_redshift_order" {
       principal  = "apigateway.amazonaws.com"
       source_arn = module.api_gateway.default_apigatewayv2_stage_arn
     }
+    ScanAmiRule = {
+      principal  = "apigateway.amazonaws.com"
+      source_arn = module.api_gateway.default_apigatewayv2_stage_arn
+    }
   }
 
   attach_policy_jsons = true
@@ -335,28 +370,27 @@ module "lambda_read_redshift_order" {
   number_of_policy_jsons = 1
 }
 
-/*
+
 resource "aws_apigatewayv2_integration" "read_redshift_order" {
-  api_id = aws_apigatewayv2_api.apigateway.id
+  api_id = module.api_gateway.apigatewayv2_api_id
   integration_uri    = module.lambda_read_redshift_order.lambda_function_arn
   integration_type   = "AWS_PROXY"
-  integration_method = "POST"
+  integration_method = "GET"
 }
 
 resource "aws_apigatewayv2_route" "read_redshift_order" {
-  api_id = aws_apigatewayv2_api.apigateway.id
-  route_key = "GET /redshift_orders"
+  api_id = module.api_gateway.apigatewayv2_api_id
+  route_key = "GET /orders3"
   target    = "integrations/${aws_apigatewayv2_integration.read_redshift_order.id}"
 }
 
-resource "aws_lambda_permission" "api_gw_read_redshift_user" {
+resource "aws_lambda_permission" "api_gw_read_redshift_order" {
   statement_id  = "AllowExecutionFromAPIGateway"
   action        = "lambda:InvokeFunction"
   function_name = module.lambda_read_redshift_order.lambda_function_name
   principal     = "apigateway.amazonaws.com"
-  source_arn = "${aws_apigatewayv2_api.apigateway.execution_arn}"
+  source_arn = "${module.api_gateway.apigatewayv2_api_execution_arn}/*/*"
 }
-*/
 
 
 #######################################################

@@ -39,6 +39,8 @@ def lambda_handler(event, context):
 
     insert_into_table( redshift_data_api_client, redshift_database_name, redshift_workgroup_name )
 
+    grant_permissions( redshift_data_api_client, redshift_database_name, redshift_workgroup_name )
+
     body = json.dumps(responseBody)
 
     logging.info("Result: {}:".format(responseBody))
@@ -128,3 +130,25 @@ def insert_into_table( redshift_data_api_client, redshift_database_name, redshif
             logger.info("Current working... query status is: {} ".format(query_status))
     return result 
 
+def grant_permissions( redshift_data_api_client, redshift_database_name, redshift_workgroup_name ):
+    logger.info("------------- grant_permissions --------------")
+
+    logger.info("CREATE ROLE")
+    res = redshift_data_api_client.execute_statement(
+        Database=redshift_database_name, 
+        WorkgroupName=redshift_workgroup_name, 
+        Sql="CREATE ROLE role1;")
+    query_id = res["Id"]
+    desc = redshift_data_api_client.describe_statement(Id=query_id)
+    query_status = desc["Status"]
+    logger.info( "Query status: {}".format(query_status))
+
+    logger.info("GRANT SELECT on TABLE")
+    res = redshift_data_api_client.execute_statement(
+        Database=redshift_database_name, 
+        WorkgroupName=redshift_workgroup_name, 
+        Sql="GRANT SELECT on TABLE public.kj_order to ROLE role1;")
+    query_id = res["Id"]
+    desc = redshift_data_api_client.describe_statement(Id=query_id)
+    query_status = desc["Status"]
+    logger.info( "Query status: {}".format(query_status))
