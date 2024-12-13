@@ -41,3 +41,5 @@ terraform.rc
 
 # ignore command outputs
 *.json
+
+.terraform.lock.hcl

@@ -29,6 +29,40 @@ resource "aws_s3_bucket_acl" "lambda_bucket" {
 # create API Gateway
 #######################################################
 
+/*
+resource "aws_apigatewayv2_api" "apigateway" {
+  name          = "serverless_lambda_gw"
+  protocol_type = "HTTP"
+}
+
+resource "aws_apigatewayv2_stage" "apigateway" {
+  api_id = aws_apigatewayv2_api.apigateway.id
+  name        = "apigateway"
+  auto_deploy = true
+  access_log_settings {
+    destination_arn = aws_cloudwatch_log_group.api_gw.arn
+    format = jsonencode({
+      requestId               = "$context.requestId"
+      sourceIp                = "$context.identity.sourceIp"
+      requestTime             = "$context.requestTime"
+      protocol                = "$context.protocol"
+      httpMethod              = "$context.httpMethod"
+      resourcePath            = "$context.resourcePath"
+      routeKey                = "$context.routeKey"
+      status                  = "$context.status"
+      responseLength          = "$context.responseLength"
+      integrationErrorMessage = "$context.integrationErrorMessage"
+      }
+    )
+  }
+}
+
+resource "aws_cloudwatch_log_group" "api_gw" {
+  name = "/aws/api_gw/${aws_apigatewayv2_api.apigateway.name}"
+  retention_in_days = 3
+}
+*/
+
 module "api_gateway" {
   source  = "terraform-aws-modules/apigateway-v2/aws"
   version = "~> 4.0"
@@ -50,8 +84,15 @@ module "api_gateway" {
       })
       payload_format_version = "1.0"
     }
+
+    "GET /orders/create" = {
+      integration_type    = "AWS_PROXY"
+      lambda_arn             = module.lambda_read_redshift_order.lambda_function_arn
+      payload_format_version = "1.0"
+    }
   }
 }
+
 
 module "apigateway_put_events_to_eventbridge_role" {
   source  = "terraform-aws-modules/iam/aws//modules/iam-assumable-role"
@@ -79,7 +120,6 @@ data "aws_iam_policy_document" "apigateway_put_events_to_eventbridge_policy" {
     actions   = ["events:PutEvents"]
     resources = [module.eventbridge.eventbridge_bus_arn]
   }
-
   depends_on = [module.eventbridge]
 }
 
@@ -171,6 +211,7 @@ module "security_group" {
 # Lambda(s)
 #######################################################
 
+## write_redshift_order
 
 module "lambda_write_redshift_order" {
   source = "terraform-aws-modules/lambda/aws"
@@ -232,6 +273,91 @@ module "lambda_write_redshift_order" {
   number_of_policy_jsons = 1
 }
 
+## read_redshift_order.py
+
+module "lambda_read_redshift_order" {
+  source = "terraform-aws-modules/lambda/aws"
+  function_name = "ReadRedshiftOrder"
+  handler       = "read_redshift_order.lambda_handler"
+  runtime       = "python3.8"
+  source_path = "src/read_redshift_order"
+  store_on_s3 = true
+  s3_bucket   = aws_s3_bucket.lambda_bucket.id
+  environment_variables = {
+    DB_TABLE = "user_table"
+  }
+  logging_log_group             = "/aws/lambda/read_redshift_order"
+  logging_log_format            = "JSON"
+  logging_application_log_level = "INFO"
+  logging_system_log_level      = "DEBUG"
+
+  create_current_version_allowed_triggers = false
+  allowed_triggers = {
+    APIGatewayAny = {
+      principal  = "apigateway.amazonaws.com"
+      source_arn = module.api_gateway.default_apigatewayv2_stage_arn
+    }
+  }
+
+  attach_policy_jsons = true
+  policy_jsons = [
+    <<-EOT
+      {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "redshift-data:ExecuteStatement",
+                    "redshift-serverless:GetCredentials",
+                    "redshift-data:GetStatementResult",
+                    "redshift-data:CancelStatement",
+                    "redshift-data:DescribeStatement",
+                    "redshift-data:ListStatements",
+                    "redshift-data:ListTables",
+                    "redshift-data:ListSchemas"
+                ],
+                "Resource": "*"
+            },
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "logs:CreateLogGroup",
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                ],
+                "Resource": "*"
+            }
+          ]
+      }
+    EOT
+  ]
+  number_of_policy_jsons = 1
+}
+
+/*
+resource "aws_apigatewayv2_integration" "read_redshift_order" {
+  api_id = aws_apigatewayv2_api.apigateway.id
+  integration_uri    = module.lambda_read_redshift_order.lambda_function_arn
+  integration_type   = "AWS_PROXY"
+  integration_method = "POST"
+}
+
+resource "aws_apigatewayv2_route" "read_redshift_order" {
+  api_id = aws_apigatewayv2_api.apigateway.id
+  route_key = "GET /redshift_orders"
+  target    = "integrations/${aws_apigatewayv2_integration.read_redshift_order.id}"
+}
+
+resource "aws_lambda_permission" "api_gw_read_redshift_user" {
+  statement_id  = "AllowExecutionFromAPIGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = module.lambda_read_redshift_order.lambda_function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn = "${aws_apigatewayv2_api.apigateway.execution_arn}"
+}
+*/
+
 
 #######################################################
 # Eventbridge
@@ -248,12 +374,6 @@ module "eventbridge" {
         "source" : ["api.gateway.orders.create"]
       })
     }
-#    rule_lambda_redshift = {
-#      event_pattern = jsonencode({
-#        "detail-type" : ["Order Create"],
-#        "source" : ["api.gateway.orders.create"]
-#      })
-#    }
   }
   targets = {
     rule_sqs = [
@@ -269,13 +389,6 @@ module "eventbridge" {
         target_id       = "send-orders-to-redshift"
       }
     ]
-#    rule_lambda_redshift = [
-#      {
-#        name = "event-to-lambda"
-#        arn  = "${module.lambda_write_redshift_order.lambda_function_arn}"
-#        target_id       = "send-orders-to-redshift"
-#      }
-#    ]
   }
 }
 

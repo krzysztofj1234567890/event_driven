@@ -23,6 +23,10 @@ Test lambda and API gateway
 ```
 # write
 curl -X POST "$(terraform output -raw gateway_url)/orders/create" --header 'Content-Type: application/json' -d '{"data":{"destination":{"name":"accountName"}}}'
+curl -X POST "$(terraform output -raw gateway_url)/orders/create" --header 'Content-Type: application/json' -d '{"data":{"destination":{"name":"accountName"}}}'
+
+
+curl -X GET "$(terraform output -raw gateway_url)/orders/create" --header 'Content-Type: application/json' 
 
 ```
 
