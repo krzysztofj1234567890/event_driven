@@ -10,14 +10,12 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 def lambda_handler(event, context):
-  table = os.environ.get('DB_TABLE')
-  logging.info(f"## Loaded table name from environemt variable DB_TABLE: {table}")
   logging.info( f"event: {event}" )
 
-  # TODO redshift_workgroup_name=event['kj-workgroup']
-  # TODO redshift_database_name = event['redshift_database']
-  redshift_workgroup_name='kj-workgroup'
-  redshift_database_name = 'kj_database'
+  redshift_workgroup_name = os.environ.get('REDSHIFT_WORKGROUP')
+  redshift_database_name = os.environ.get('REDSHIFT_DATABASE')
+  redshift_secret_arn = os.environ.get('REDSHIFT_SECRET_ARN')
+  logging.info("redshift_secret_arn: {}:".format(redshift_secret_arn))
 
   result = OrderedDict()
   body = {}
@@ -26,7 +24,7 @@ def lambda_handler(event, context):
   try:
     redshift_data_api_client = boto3.client('redshift-data')
 
-    selectResult = select_from_table( redshift_data_api_client, redshift_database_name, redshift_workgroup_name )
+    selectResult = select_from_table( redshift_data_api_client, redshift_database_name, redshift_workgroup_name, redshift_secret_arn )
     responseBody = [{'selectResult': selectResult }]
 
     body = json.dumps(responseBody)
@@ -55,7 +53,7 @@ def lambda_handler(event, context):
 
   return result
 
-def select_from_table( redshift_data_api_client, redshift_database_name, redshift_workgroup_name ):
+def select_from_table( redshift_data_api_client, redshift_database_name, redshift_workgroup_name, redshift_secret_arn ):
     logger.info("------------- select_from_table --------------")
     result = ""
 
@@ -63,6 +61,7 @@ def select_from_table( redshift_data_api_client, redshift_database_name, redshif
         res = redshift_data_api_client.execute_statement(
             Database=redshift_database_name, 
             WorkgroupName=redshift_workgroup_name, 
+            SecretArn=redshift_secret_arn,
             Sql="SELECT * FROM public.kj_order")
         query_id = res["Id"]
 

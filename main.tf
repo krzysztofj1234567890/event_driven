@@ -29,40 +29,6 @@ resource "aws_s3_bucket_acl" "lambda_bucket" {
 # create API Gateway
 #######################################################
 
-/*
-resource "aws_apigatewayv2_api" "apigateway" {
-  name          = "serverless_lambda_gw"
-  protocol_type = "HTTP"
-}
-
-resource "aws_apigatewayv2_stage" "apigateway" {
-  api_id = aws_apigatewayv2_api.apigateway.id
-  name        = "apigateway"
-  auto_deploy = true
-  access_log_settings {
-    destination_arn = aws_cloudwatch_log_group.api_gw.arn
-    format = jsonencode({
-      requestId               = "$context.requestId"
-      sourceIp                = "$context.identity.sourceIp"
-      requestTime             = "$context.requestTime"
-      protocol                = "$context.protocol"
-      httpMethod              = "$context.httpMethod"
-      resourcePath            = "$context.resourcePath"
-      routeKey                = "$context.routeKey"
-      status                  = "$context.status"
-      responseLength          = "$context.responseLength"
-      integrationErrorMessage = "$context.integrationErrorMessage"
-      }
-    )
-  }
-}
-
-resource "aws_cloudwatch_log_group" "api_gw" {
-  name = "/aws/api_gw/${aws_apigatewayv2_api.apigateway.name}"
-  retention_in_days = 3
-}
-*/
-
 module "api_gateway" {
   source  = "terraform-aws-modules/apigateway-v2/aws"
   version = "~> 4.0"
@@ -82,12 +48,6 @@ module "api_gateway" {
         Detail       = "$request.body",
         Time         = "$context.requestTimeEpoch"
       })
-      payload_format_version = "1.0"
-    }
-
-    "GET /orders" = {
-      integration_type    = "AWS_PROXY"
-      lambda_arn             = module.lambda_read_redshift_order.lambda_function_arn
       payload_format_version = "1.0"
     }
   }
@@ -121,7 +81,6 @@ data "aws_iam_policy_document" "apigateway_put_events_to_eventbridge_policy" {
   }
   depends_on = [module.eventbridge]
 }
-
 
 #######################################################
 # Redshift serverless
@@ -206,10 +165,6 @@ resource "aws_iam_role_policy_attachment" "attach-lambda" {
   policy_arn = data.aws_iam_policy.redshift-full-access-policy.arn
 }
 
-resource "aws_secretsmanager_secret" "redshift" {
-  name = "example"
-}
-
 module "vpc" {
   source            = "terraform-aws-modules/vpc/aws"
   version           = "~> 5.0"
@@ -236,6 +191,24 @@ module "security_group" {
   ingress_cidr_blocks = [module.vpc.vpc_cidr_block]
   # Allow all rules for all protocols
   egress_rules = ["all-all"]
+}
+
+#######################################################
+# SecretsManager to access Redshift ????????????????????????????????????????????????????/
+#######################################################
+
+resource "aws_secretsmanager_secret" "redshift" {
+  name = "kj_redshift_secret"
+}
+
+resource "aws_secretsmanager_secret_version" "redshift" {
+  secret_id     = aws_secretsmanager_secret.redshift.id
+  secret_string = <<EOF
+{
+  "username": "${var.redshift_serverless_admin_username}",
+  "password": "${var.redshift_serverless_admin_password}"
+}
+EOF
 }
 
 #######################################################
@@ -315,7 +288,9 @@ module "lambda_read_redshift_order" {
   store_on_s3 = true
   s3_bucket   = aws_s3_bucket.lambda_bucket.id
   environment_variables = {
-    DB_TABLE = "user_table"
+    REDSHIFT_WORKGROUP = "${var.redshift_serverless_workgroup_name}"
+    REDSHIFT_DATABASE = "${var.redshift_serverless_database_name}"
+    REDSHIFT_SECRET_ARN = "${aws_secretsmanager_secret.redshift.arn}"
   }
   logging_log_group             = "/aws/lambda/read_redshift_order"
   logging_log_format            = "JSON"
@@ -362,6 +337,13 @@ module "lambda_read_redshift_order" {
                     "logs:PutLogEvents"
                 ],
                 "Resource": "*"
+            },
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "secretsmanager:GetSecretValue"
+                ],
+                "Resource": "*"
             }
           ]
       }
@@ -380,7 +362,7 @@ resource "aws_apigatewayv2_integration" "read_redshift_order" {
 
 resource "aws_apigatewayv2_route" "read_redshift_order" {
   api_id = module.api_gateway.apigatewayv2_api_id
-  route_key = "GET /orders3"
+  route_key = "GET /orders"
   target    = "integrations/${aws_apigatewayv2_integration.read_redshift_order.id}"
 }
 
