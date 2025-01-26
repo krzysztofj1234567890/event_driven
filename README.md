@@ -1,5 +1,24 @@
 # event_driven
 
+## Design
+
+Service consists of:
+- S3: to store lambdas
+- API Gateway: sends http requests to:
+  - Lambda (write)
+  - EventBridge (read)
+- Redshift serverless
+- VPC
+- Lambdas:
+  - write data to Redshift
+  - read data from Redshift
+- SQS
+- EventBridge
+  - source: API Gateway
+  - target: 
+    - SQS queue
+    - Lambda
+
 ## Setup
 
 Check aws configration
