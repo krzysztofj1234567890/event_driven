@@ -8,7 +8,7 @@ Service consists of:
   - Lambda (write)
   - EventBridge (read)
 - Redshift serverless
-- VPC
+- VPC: containig subnets for Redshift serverless
 - Lambdas:
   - write data to Redshift
   - read data from Redshift
